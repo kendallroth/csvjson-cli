@@ -1,0 +1,3 @@
+hashtag,timestamp,count,is active
+#sample,1641013200000,238,true
+#another,1647576000000,48,false
