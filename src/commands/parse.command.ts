@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import { parse as parseCsv } from "csv";
 import oraSpinner from "ora";
+import path from "path";
 import { Arguments, CommandModule } from "yargs";
 
 // Utilities
@@ -25,6 +26,8 @@ interface IParseArgs extends Arguments {
   "output-file"?: string;
   /** Output results as table (for small sets) */
   "output-table"?: boolean;
+  /** Record transformation/filter file (must export valid JS default function) */
+  "transform-file"?: string;
   /** Column formatting/types */
   types?: string;
 }
@@ -75,6 +78,10 @@ const ParseCommand: CommandModule = {
       describe: "Whether to output as a table (small datasets)",
       type: "boolean",
     },
+    "transform-file": {
+      description: "Record transform/filter file path (requires default export)",
+      type: "string",
+    },
     types: {
       describe: "Column types (simple)",
       type: "string",
@@ -89,6 +96,7 @@ const ParseCommand: CommandModule = {
       "input-file": inputFile,
       "output-file": outputFile,
       "output-table": outputTable,
+      "transform-file": transformFile,
     } = args;
 
     // Either file output or pretty print specifier must be passed (as safety for large files)!
@@ -98,6 +106,20 @@ const ParseCommand: CommandModule = {
     }
 
     await validateIOFiles(inputFile, outputFile);
+
+    // Detect and parse transform function file (using default export) if available
+    let transformFileFunction: ((record: JSONObject, row: number) => JSONObject) | null = null;
+    if (transformFile) {
+      const filePathFull = path.join(process.cwd(), transformFile);
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        transformFileFunction = require(filePathFull);
+      } catch (e: any) {
+        print(chalk.red("Failed to parse transform file!"));
+        print(e);
+        process.exit(1);
+      }
+    }
 
     // Parse optional selected columns and aliases/types from arguments
     const columnDefinitions = parseColumnDefinitions(columnString);
@@ -110,7 +132,9 @@ const ParseCommand: CommandModule = {
       on_record: (record, context) => {
         spinner.text = `Parsing: ${context.lines.toLocaleString()}`;
 
-        if (columnDefinitions) {
+        if (transformFileFunction) {
+          return transformFileFunction(record, context.lines);
+        } else if (columnDefinitions) {
           return transformRecordFromDefinition(record, columnDefinitions);
         }
 
